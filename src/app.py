@@ -48,9 +48,16 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # Reply message that user send
-    reply_text = f"你說的是：{event.message.text}"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    message_text = event.message.text
+    source_type = event.source.type
+    if source_type == "user":
+        reply_text = f"你說的是：{event.message.text}"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    elif source_type == "group":
+        bot_name = "@linebot name"
+        if bot_name in message_text and "@all" not in message_text:
+            reply_text = f"你提到我了！你說的是：{message_text.replace(bot_name, '').strip()}"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
 
 
 if __name__ == "__main__":
