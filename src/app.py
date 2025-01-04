@@ -4,6 +4,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import os
 from dotenv import load_dotenv
+import logging
+import sys
 
 load_dotenv()
 
@@ -14,6 +16,17 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+app.logger.setLevel(logging.INFO)
+if not app.logger.handlers:
+    app.logger.addHandler(logging.StreamHandler(sys.stdout))
+
+
+# @app.route("/test-logger", methods=["POST"])
+# def testLogger():
+#     app.logger.info(f"Request body: {request.get_data(as_text=True)}")
+
+#     return "OK"
 
 
 @app.route("/webhook", methods=["POST"])
