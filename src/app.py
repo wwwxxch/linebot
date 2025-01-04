@@ -1,11 +1,17 @@
-from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import os
+import sys
 from dotenv import load_dotenv
 import logging
-import sys
+from flask import Flask, request, abort
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
+# from linebot import LineBotApi, WebhookHandler
+# from linebot.exceptions import InvalidSignatureError
+# from linebot.models import MessageEvent, TextMessage, TextSendMessage
+
 
 load_dotenv()
 
@@ -14,7 +20,7 @@ app = Flask(__name__)
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 app.logger.setLevel(logging.INFO)
@@ -41,23 +47,31 @@ def webhook():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        app.logger.error("Invalid signature. Please check your channel access token/channel secret.")
         abort(400)
 
     return "OK"
 
 
-@handler.add(MessageEvent, message=TextMessage)
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    message_text = event.message.text
-    source_type = event.source.type
-    if source_type == "user":
-        reply_text = f"你說的是：{event.message.text}"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
-    elif source_type == "group":
-        bot_name = "@linebot name"
-        if bot_name in message_text and "@all" not in message_text:
-            reply_text = f"你提到我了！你說的是：{message_text.replace(bot_name, '').strip()}"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    app.logger.info(f"event: {event}")
+    responseMessage = f"你說的是：{event.message.text}"
+    sourceType = event.source.type
+
+    # Get mention flag
+    # mention = event.message.mention.mentionees[0].is_self if event.message.mention else False
+    mentionees = event.message.mention.mentionees if event.message.mention else []
+    mention = any(mentionee.is_self for mentionee in mentionees)
+
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        if sourceType == "user" or (sourceType == "group" and mention):
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token, messages=[TextMessage(text=responseMessage)]
+                )
+            )
 
 
 if __name__ == "__main__":
