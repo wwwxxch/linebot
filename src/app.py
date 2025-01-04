@@ -8,11 +8,6 @@ from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
-# from linebot import LineBotApi, WebhookHandler
-# from linebot.exceptions import InvalidSignatureError
-# from linebot.models import MessageEvent, TextMessage, TextSendMessage
-
-
 load_dotenv()
 
 app = Flask(__name__)
@@ -60,9 +55,8 @@ def handle_message(event):
     sourceType = event.source.type
 
     # Get mention flag
-    # mention = event.message.mention.mentionees[0].is_self if event.message.mention else False
     mentionees = event.message.mention.mentionees if event.message.mention else []
-    mention = any(mentionee.is_self for mentionee in mentionees)
+    mention = any(getattr(mentionee, "is_self", False) for mentionee in mentionees)
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
