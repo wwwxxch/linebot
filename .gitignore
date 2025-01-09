@@ -1,5 +1,9 @@
 venv
 .venv
-_DS_Store
+.DS_Store
 __pycache__
 .env
+
+development
+input_docs
+cat_care_db
