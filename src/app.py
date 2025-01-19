@@ -8,19 +8,20 @@ from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma.vectorstores import Chroma
-from enum import Enum
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone
 
+from enum import Enum
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-# from langchain.chains import RetrievalQA
 
 import uuid
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langchain_core.messages import HumanMessage
-
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnablePassthrough
 
 load_dotenv()
 
@@ -54,12 +55,11 @@ def llmConfig():
 
         if llmProvider == LLMProvider.OPENAI.value:
             return ChatOpenAI(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 temperature=0,
                 max_tokens=None,
                 timeout=None,
                 max_retries=2,
-                # api_key="..."
             )
         elif llmProvider == LLMProvider.GEMINI.value:
             return ChatGoogleGenerativeAI(
@@ -75,26 +75,74 @@ def llmConfig():
 
 
 # Initialize embeddings
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # Initialize vector store
-db_directory = os.path.join(os.getcwd(), "cat_care_db")
-# vector_store = Chroma(persist_directory=db_directory, embeddin_function=embeddings)
-
 try:
-    vector_store = Chroma(persist_directory=db_directory, embedding_function=embeddings)
+    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    index = pc.Index("catlinebot")
+    vector_store = PineconeVectorStore(index=index, embedding=embeddings)
+    app.logger.info("Successfully connected to Pinecone index")
 except Exception as e:
-    logging.exception(f"Failed to initialize vector database: {e}")
+    app.logger.error(f"Failed to initialize vector database: {e}")
     sys.exit(1)
+
+
+def get_retriever():
+    # Create a retriever from the vector store
+    retriever = vector_store.as_retriever(k=4)  # k is the number of docs to retrieve
+    return retriever
+
+
+def create_document_chain(llm):
+    SYSTEM_TEMPLATE = """
+        你是一個專業的貓咪照護顧問，並且了解特定貓咪花花的日常照護習慣。
+        請根據用戶的提問以及以下的 context 提供專業的建議。
+        回答時請注意：
+        1. 使用友善且專業的口吻
+        2. 回答要簡潔明瞭
+        3. 如果問題涉及貓咪健康，請根據專業給予意見並建議用戶諮詢獸醫
+        4. 回答要以繁體中文回覆
+        如果 context 沒有相關資訊，請不要亂編，直接回答「我不知道」。
+        <context>
+        {context}
+        </context>
+        """
+
+    question_answering_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_TEMPLATE),
+            MessagesPlaceholder(variable_name="messages"),
+        ]
+    )
+    document_chain = create_stuff_documents_chain(llm, question_answering_prompt)
+    return document_chain
+
+
+def create_retrieval_chain(llm):
+    retriever = get_retriever()
+    document_chain = create_document_chain(llm)
+
+    def parse_retriever_input(params: dict):
+        return params["messages"][-1].content
+
+    retrieval_chain = RunnablePassthrough.assign(
+        context=parse_retriever_input | retriever,
+    ).assign(
+        answer=document_chain,
+    )
+    return retrieval_chain
 
 
 def getQAChain():
     workflow = StateGraph(state_schema=MessagesState)
     model = llmConfig()
+    retrieval_chain = create_retrieval_chain(model)
 
     def callModel(state: MessagesState):
-        response = model.invoke(state["messages"])
-        return {"messages": response}
+        # Use the retrieval chain here
+        response = retrieval_chain.invoke({"messages": state["messages"]})
+        return {"messages": [HumanMessage(content=response["answer"])]}
 
     workflow.add_edge(START, "model")
     workflow.add_node("model", callModel)
@@ -104,29 +152,17 @@ def getQAChain():
     return langGraphApp
 
 
-def generate_system_prompt():
-    return """你是一個專業的貓咪照護顧問，請根據用戶的提問提供專業的建議。
-    回答時請注意：
-    1. 使用友善且專業的口吻
-    2. 回答要簡潔明瞭
-    3. 如果問題涉及貓咪健康，建議諮詢獸醫
-    4. 回答要以繁體中文回覆
-    """
-
-
 def getResFromAI(user_id, user_message):
-    """Generate response using RAG system"""
     try:
         langGraphApp = getQAChain()
         thread_id = uuid.uuid4()
-
         config = {"configurable": {"thread_id": thread_id}}
         inputMessage = HumanMessage(content=user_message)
-        full_prompt = f"{generate_system_prompt()}\n\n用戶問題：{inputMessage}"
 
-        for event in langGraphApp.stream({"messages": [full_prompt]}, config, stream_mode="values"):
-            response = event["messages"][-1].content
-        return response
+        full_response = ""
+        for event in langGraphApp.stream({"messages": [inputMessage]}, config, stream_mode="values"):
+            full_response += event["messages"][-1].content
+        return full_response
 
     except Exception as e:
         app.logger.error(f"Error generating response: {str(e)}")

@@ -7,7 +7,10 @@ from pinecone import Pinecone
 
 # from langchain_chroma.vectorstores import Chroma
 import logging
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,9 +49,8 @@ def load_documents(directory_path: str):
     # pdf
     pdf_loader = UnstructuredLoader(
         file_path=os.path.join(directory_path, "花花檢查結果_20240608.pdf"),
-        streategy="hi_res",
+        strategy="hi_res",
         partition_via_api=True,
-        coordinates=True,
     )
 
     documents = (
@@ -89,7 +91,7 @@ def create_vector_store(splits):
     # )
     pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
     index = pc.Index("catlinebot")
-    vector_store = PineconeVectorStore(index=index, embeddings=embeddings)
+    vector_store = PineconeVectorStore(index=index, embedding=embeddings)
     vector_store.add_documents(splits)
 
     # logger.info(f"vector store saved to {persist_directory}")
