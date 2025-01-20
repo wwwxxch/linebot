@@ -24,7 +24,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
 
 load_dotenv()
-
+print(os.getenv("LLM_PROVIDER"))
 app = Flask(__name__)
 
 
@@ -52,7 +52,6 @@ if not app.logger.handlers:
 def llmConfig():
     try:
         llmProvider = os.getenv("LLM_PROVIDER", LLMProvider.GEMINI.value)
-        print(os.getenv("LLM_PROVIDER"))
 
         if llmProvider == LLMProvider.OPENAI.value:
             return ChatOpenAI(
