@@ -52,6 +52,7 @@ if not app.logger.handlers:
 def llmConfig():
     try:
         llmProvider = os.getenv("LLM_PROVIDER", LLMProvider.GEMINI.value)
+        print(f"llmProvider: {llmProvider}")
 
         if llmProvider == LLMProvider.OPENAI.value:
             return ChatOpenAI(
