@@ -177,6 +177,11 @@ def getResFromAI(user_id, user_message):
 #     return "OK"
 
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    return "OK"
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # Get X-Line-Signature header
